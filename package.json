@@ -1,0 +1,28 @@
+{
+  "name": "threejs-character-portfolio",
+  "version": "1.0.0",
+  "description": "Un portfolio interactif sous forme de petit jeu avec un personnage en Three.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "threejs",
+    "portfolio",
+    "game",
+    "3d",
+    "interactive"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "gsap": "^3.12.5",
+    "three": "^0.162.0"
+  },
+  "devDependencies": {
+    "tweakpane": "^4.0.3",
+    "vite": "^5.1.6"
+  }
+}
