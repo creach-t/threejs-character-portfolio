@@ -43,6 +43,19 @@ class Game {
         this.setupEnvironment();
         this.setupCharacter();
         
+        // Paramètres de la caméra
+        this.cameraSettings = {
+            followPlayer: true,          // Si la caméra doit suivre le joueur
+            rotateWithPlayer: false,     // Si la caméra doit tourner avec le joueur
+            smoothFollow: true,          // Transition douce
+            followSpeed: 0.1,            // Vitesse de suivi (plus petit = plus lent)
+            height: 4,                   // Hauteur de la caméra
+            distance: 8,                 // Distance derrière le joueur
+            lookHeight: 1.7,             // Hauteur du point de regard
+            fixedRotation: true,         // Maintenir une rotation fixe
+            fixedAngle: -Math.PI / 4     // Angle fixe (par défaut: regarder vers la direction -z)
+        };
+        
         // Démarrer la boucle de rendu avant de configurer le panneau de debug
         // pour éviter les erreurs liées à l'importation asynchrone de Tweakpane
         this.animate();
@@ -348,10 +361,6 @@ class Game {
             eyeColor: 0x1E90FF,
             outfitColor: 0x9370DB
         });
-        
-        // Configuration de la caméra pour suivre le personnage
-        this.followCamera = true;
-        this.thirdPersonCameraOffset = new THREE.Vector3(0, 3, 6);
     }
     
     setupDebugPanel() {
@@ -363,7 +372,6 @@ class Game {
             
             // Paramètres du jeu
             const gameSettings = { 
-                followCamera: this.followCamera,
                 orbitControls: false
             };
             
@@ -371,16 +379,45 @@ class Game {
             const gameTab = this.debugPane.addFolder({ title: 'Paramètres du jeu' });
             
             // Ajouter les contrôles
-            gameTab.addInput(gameSettings, 'followCamera', { label: 'Caméra 3e personne' })
-                .on('change', (ev) => {
-                    this.followCamera = ev.value;
-                });
-            
             gameTab.addInput(gameSettings, 'orbitControls', { label: 'Contrôles d\'orbite' })
                 .on('change', (ev) => {
                     this.orbitControls.enabled = ev.value;
-                    this.followCamera = !ev.value;
+                    this.cameraSettings.followPlayer = !ev.value;
                 });
+            
+            // Onglet de debug pour les paramètres de caméra
+            const cameraTab = this.debugPane.addFolder({ title: 'Paramètres de Caméra' });
+            
+            cameraTab.addInput(this.cameraSettings, 'followPlayer', { label: 'Suivre le joueur' });
+            cameraTab.addInput(this.cameraSettings, 'rotateWithPlayer', { label: 'Rotation avec joueur' });
+            cameraTab.addInput(this.cameraSettings, 'smoothFollow', { label: 'Suivi fluide' });
+            cameraTab.addInput(this.cameraSettings, 'followSpeed', { 
+                label: 'Vitesse de suivi',
+                min: 0.01,
+                max: 1.0,
+                step: 0.01
+            });
+            cameraTab.addInput(this.cameraSettings, 'height', { 
+                label: 'Hauteur',
+                min: 1,
+                max: 10,
+                step: 0.5
+            });
+            cameraTab.addInput(this.cameraSettings, 'distance', { 
+                label: 'Distance',
+                min: 2,
+                max: 15,
+                step: 0.5
+            });
+            cameraTab.addInput(this.cameraSettings, 'lookHeight', { 
+                label: 'Hauteur du regard',
+                min: 0,
+                max: 5,
+                step: 0.1
+            });
+            cameraTab.addInput(this.cameraSettings, 'fixedRotation', { 
+                label: 'Rotation fixe' 
+            });
             
             // Onglet de debug pour les paramètres du personnage
             const characterTab = this.debugPane.addFolder({ title: 'Personnage' });
@@ -483,28 +520,66 @@ class Game {
     }
     
     updateCamera() {
-        if (this.followCamera && this.character) {
-            // Position de la caméra en mode troisième personne
-            const targetPosition = this.character.mesh.position.clone();
+        if (!this.character) return;
+        
+        if (this.orbitControls && this.orbitControls.enabled) {
+            // Mode contrôles d'orbite - ne rien faire, les contrôles gèrent la caméra
+            return;
+        }
+        
+        if (this.cameraSettings.followPlayer) {
+            // Position de base du joueur
+            const playerPosition = this.character.mesh.position.clone();
             
-            // Calculer l'offset de la caméra par rapport à la rotation du personnage
-            const offset = this.thirdPersonCameraOffset.clone();
-            const rotation = this.character.mesh.rotation.y;
+            let cameraPosition = new THREE.Vector3();
+            let lookAtPosition = new THREE.Vector3();
             
-            const rotatedX = offset.x * Math.cos(rotation) + offset.z * Math.sin(rotation);
-            const rotatedZ = -offset.x * Math.sin(rotation) + offset.z * Math.cos(rotation);
+            if (this.cameraSettings.fixedRotation) {
+                // Utiliser une rotation fixe pour la caméra (ne suit pas la rotation du joueur)
+                const angle = this.cameraSettings.fixedAngle; // Angle fixe (regarder vers -Z par défaut)
+                
+                // Calculer la position de la caméra à partir de l'angle fixe
+                cameraPosition.x = playerPosition.x + Math.sin(angle) * this.cameraSettings.distance;
+                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
+                cameraPosition.z = playerPosition.z + Math.cos(angle) * this.cameraSettings.distance;
+                
+                // Point de regard situé à hauteur des yeux du personnage
+                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
+            } else if (this.cameraSettings.rotateWithPlayer) {
+                // Utiliser la rotation du joueur pour orienter la caméra
+                const playerRotation = this.character.mesh.rotation.y;
+                
+                // Calculer l'offset de la caméra par rapport à la rotation du personnage
+                const offsetX = Math.sin(playerRotation) * this.cameraSettings.distance;
+                const offsetZ = Math.cos(playerRotation) * this.cameraSettings.distance;
+                
+                // Calculer la position de la caméra
+                cameraPosition.x = playerPosition.x - offsetX;
+                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
+                cameraPosition.z = playerPosition.z - offsetZ;
+                
+                // Point de regard situé à hauteur des yeux du personnage
+                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
+            } else {
+                // Mode position fixe derrière le joueur (ignorer la rotation)
+                cameraPosition.x = playerPosition.x;
+                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
+                cameraPosition.z = playerPosition.z + this.cameraSettings.distance;
+                
+                // Point de regard toujours à la position du joueur
+                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
+            }
             
-            offset.x = rotatedX;
-            offset.z = rotatedZ;
-            
-            // Appliquer l'offset à la position cible
-            const cameraTargetPosition = targetPosition.clone().add(offset);
-            
-            // Animation douce de la caméra
-            this.camera.position.lerp(cameraTargetPosition, 0.05);
+            // Appliquer la position de la caméra avec ou sans lissage
+            if (this.cameraSettings.smoothFollow) {
+                // Animation douce de la caméra
+                this.camera.position.lerp(cameraPosition, this.cameraSettings.followSpeed);
+            } else {
+                // Positionnement direct
+                this.camera.position.copy(cameraPosition);
+            }
             
             // Faire regarder la caméra vers le personnage
-            const lookAtPosition = targetPosition.clone().add(new THREE.Vector3(0, 1.7, 0));
             this.camera.lookAt(lookAtPosition);
         }
     }
