@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Pane } from 'tweakpane';
 import Character from '../entities/Character.js';
 import InteractiveObject from '../entities/InteractiveObject.js';
 import PortfolioManager from './PortfolioManager.js';
@@ -37,12 +36,6 @@ class Game {
         // Collections 
         this.interactiveObjects = [];
         
-        // Configuration initiale
-        this.setupCamera();
-        this.setupLights();
-        this.setupEnvironment();
-        this.setupCharacter();
-        
         // Paramètres de la caméra
         this.cameraSettings = {
             followPlayer: true,          // Si la caméra doit suivre le joueur
@@ -56,21 +49,20 @@ class Game {
             fixedAngle: -Math.PI / 4     // Angle fixe (par défaut: regarder vers la direction -z)
         };
         
-        // Démarrer la boucle de rendu avant de configurer le panneau de debug
-        // pour éviter les erreurs liées à l'importation asynchrone de Tweakpane
+        // Configuration initiale
+        this.setupCamera();
+        this.setupLights();
+        this.setupEnvironment();
+        this.setupCharacter();
+        
+        // Démarrer la boucle de rendu
         this.animate();
         
-        // Configuration du panneau de debug et des événements après l'initialisation
-        // de l'animation pour éviter le blocage du rendu en cas d'erreur
-        setTimeout(() => {
-            try {
-                this.setupDebugPanel();
-            } catch (error) {
-                console.warn('Le panneau de debug n\'a pas pu être initialisé:', error);
-            }
-            this.setupEventListeners();
-            this.showControlsHelp();
-        }, 100);
+        // Configuration des événements
+        this.setupEventListeners();
+        
+        // Afficher les contrôles d'aide
+        this.showControlsHelp();
     }
     
     setupCamera() {
@@ -363,108 +355,17 @@ class Game {
         });
     }
     
-    setupDebugPanel() {
-        try {
-            // Créer un panneau de debug avec tweakpane
-            this.debugPane = new Pane({
-                container: this.debugPanel
-            });
+    toggleDebugDisplay() {
+        // Toggle des contrôles d'orbite
+        if (this.orbitControls) {
+            this.orbitControls.enabled = !this.orbitControls.enabled;
             
-            // Paramètres du jeu
-            const gameSettings = { 
-                orbitControls: false
-            };
-            
-            // Onglet de debug pour les paramètres du jeu
-            const gameTab = this.debugPane.addFolder({ title: 'Paramètres du jeu' });
-            
-            // Ajouter les contrôles
-            gameTab.addInput(gameSettings, 'orbitControls', { label: 'Contrôles d\'orbite' })
-                .on('change', (ev) => {
-                    this.orbitControls.enabled = ev.value;
-                    this.cameraSettings.followPlayer = !ev.value;
-                });
-            
-            // Onglet de debug pour les paramètres de caméra
-            const cameraTab = this.debugPane.addFolder({ title: 'Paramètres de Caméra' });
-            
-            cameraTab.addInput(this.cameraSettings, 'followPlayer', { label: 'Suivre le joueur' });
-            cameraTab.addInput(this.cameraSettings, 'rotateWithPlayer', { label: 'Rotation avec joueur' });
-            cameraTab.addInput(this.cameraSettings, 'smoothFollow', { label: 'Suivi fluide' });
-            cameraTab.addInput(this.cameraSettings, 'followSpeed', { 
-                label: 'Vitesse de suivi',
-                min: 0.01,
-                max: 1.0,
-                step: 0.01
-            });
-            cameraTab.addInput(this.cameraSettings, 'height', { 
-                label: 'Hauteur',
-                min: 1,
-                max: 10,
-                step: 0.5
-            });
-            cameraTab.addInput(this.cameraSettings, 'distance', { 
-                label: 'Distance',
-                min: 2,
-                max: 15,
-                step: 0.5
-            });
-            cameraTab.addInput(this.cameraSettings, 'lookHeight', { 
-                label: 'Hauteur du regard',
-                min: 0,
-                max: 5,
-                step: 0.1
-            });
-            cameraTab.addInput(this.cameraSettings, 'fixedRotation', { 
-                label: 'Rotation fixe' 
-            });
-            
-            // Onglet de debug pour les paramètres du personnage
-            const characterTab = this.debugPane.addFolder({ title: 'Personnage' });
-            
-            // Couleurs du personnage
-            const characterColors = {
-                bodyColor: '#ffceb4',
-                hairColor: '#3c2e28',
-                eyeColor: '#1E90FF',
-                outfitColor: '#9370DB'
-            };
-            
-            // Fonction de mise à jour des couleurs
-            const updateCharacterColors = () => {
-                if (this.character) {
-                    this.character.updateColors({
-                        bodyColor: parseInt(characterColors.bodyColor.replace('#', '0x')),
-                        hairColor: parseInt(characterColors.hairColor.replace('#', '0x')),
-                        eyeColor: parseInt(characterColors.eyeColor.replace('#', '0x')),
-                        outfitColor: parseInt(characterColors.outfitColor.replace('#', '0x'))
-                    });
-                }
-            };
-            
-            // Ajouter les contrôles de couleur
-            characterTab.addInput(characterColors, 'bodyColor', { label: 'Couleur de peau' })
-                .on('change', updateCharacterColors);
-            
-            characterTab.addInput(characterColors, 'hairColor', { label: 'Couleur de cheveux' })
-                .on('change', updateCharacterColors);
-            
-            characterTab.addInput(characterColors, 'eyeColor', { label: 'Couleur des yeux' })
-                .on('change', updateCharacterColors);
-            
-            characterTab.addInput(characterColors, 'outfitColor', { label: 'Couleur de tenue' })
-                .on('change', updateCharacterColors);
-            
-            // Cacher le panneau de debug par défaut
-            this.debugPane.hidden = true;
-        } catch (error) {
-            console.error('Erreur lors de l\'initialisation du panneau de debug:', error);
-        }
-    }
-    
-    toggleDebugPanel() {
-        if (this.debugPane) {
-            this.debugPane.hidden = !this.debugPane.hidden;
+            // Si les contrôles d'orbite sont activés, désactiver le suivi du joueur
+            if (this.orbitControls.enabled) {
+                this.cameraSettings.followPlayer = false;
+            } else {
+                this.cameraSettings.followPlayer = true;
+            }
         }
     }
     
@@ -482,10 +383,10 @@ class Game {
                 this.character.handleKeyDown(e);
             }
             
-            // Ouvrir/fermer le panneau de debug avec la touche Tab
+            // Ouvrir/fermer le mode debug avec la touche Tab
             if (e.code === 'Tab') {
                 e.preventDefault();
-                this.toggleDebugPanel();
+                this.toggleDebugDisplay();
             }
             
             // Afficher les contrôles avec la touche H
