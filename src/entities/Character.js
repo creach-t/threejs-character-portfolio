@@ -60,6 +60,9 @@ class Character {
         // État de l'animation
         this.state = 'idle';
         this.animDuration = 0;
+        
+        // Flag d'interaction
+        this.isInteracting = false;
     }
     
     setupCollider() {
@@ -102,6 +105,7 @@ class Character {
                 break;
             case 'KeyE':
                 this.moveState.interact = true;
+                this.isInteracting = true;
                 break;
         }
     }
@@ -129,6 +133,8 @@ class Character {
                 break;
             case 'KeyE':
                 this.moveState.interact = false;
+                // Nous ne réinitialisons pas isInteracting ici pour permettre à l'interaction d'être détectée
+                // même si la touche est relâchée entre les frames
                 break;
         }
     }
@@ -171,12 +177,15 @@ class Character {
             this.physics.velocity.add(cameraDirection.clone().multiplyScalar(-speedMultiplier));
         }
         
-        if (this.moveState.right) {
-            this.physics.velocity.add(cameraRight.clone().multiplyScalar(speedMultiplier));
+        // Inverser les directions gauche/droite pour corriger le comportement
+        if (this.moveState.left) {
+            // Correction: utilisez une valeur positive pour le mouvement vers la gauche
+            this.physics.velocity.add(cameraRight.clone().multiplyScalar(-speedMultiplier));
         }
         
-        if (this.moveState.left) {
-            this.physics.velocity.add(cameraRight.clone().multiplyScalar(-speedMultiplier));
+        if (this.moveState.right) {
+            // Correction: utilisez une valeur négative pour le mouvement vers la droite
+            this.physics.velocity.add(cameraRight.clone().multiplyScalar(speedMultiplier));
         }
         
         // Appliquer le saut
@@ -241,7 +250,8 @@ class Character {
     
     // Méthode pour faire interagir le personnage avec un objet
     interact(interactable) {
-        if (this.moveState.interact) {
+        // Vérifier si la touche d'interaction est pressée ou a été pressée récemment
+        if (this.moveState.interact || this.isInteracting) {
             interactable.onInteract(this);
             
             // Animation simple d'interaction
@@ -258,6 +268,9 @@ class Character {
                 }
             });
             
+            // Réinitialiser le flag après l'interaction
+            this.isInteracting = false;
+            
             return true;
         }
         
@@ -273,34 +286,66 @@ class Character {
     
     // Méthode pour vérifier les collisions avec les objets interactifs
     checkInteractions(interactables, camera) {
+        // Si aucun objet interactif, ne rien faire
+        if (!interactables || interactables.length === 0) {
+            return false;
+        }
+        
+        // Obtenir la direction de la caméra
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
         
+        // Créer un raycaster pour détecter les objets en face du personnage
         const raycaster = new THREE.Raycaster(
             this.mesh.position.clone().add(new THREE.Vector3(0, 1, 0)),
             cameraDirection,
-            0,
-            3
+            0,  // Distance minimale
+            3   // Distance maximale d'interaction
         );
         
-        // Créer un tableau de meshes à partir des objets interactifs
-        const interactableMeshes = interactables.map(item => item.mesh);
+        // Obtenir tous les meshes interactifs
+        const interactableMeshes = [];
+        interactables.forEach(item => {
+            if (item.mesh) {
+                interactableMeshes.push(item.mesh);
+            }
+        });
         
         // Vérifier les intersections
         const intersects = raycaster.intersectObjects(interactableMeshes, true);
         
         if (intersects.length > 0) {
-            // Trouver l'objet interactif correspondant
-            const interactedMesh = intersects[0].object;
-            const interactable = interactables.find(item => 
-                item.mesh === interactedMesh || item.mesh.getObjectById(interactedMesh.id)
-            );
-            
-            if (interactable) {
-                return this.interact(interactable);
+            // Trouver l'objet interactif correspondant à l'objet intersecté
+            for (let i = 0; i < intersects.length; i++) {
+                const intersectedObj = intersects[i].object;
+                
+                // Chercher l'objet interactif qui contient ce mesh
+                for (let j = 0; j < interactables.length; j++) {
+                    const interactable = interactables[j];
+                    
+                    if (interactable.mesh === intersectedObj || 
+                        (interactable.mesh && intersectedObj.isDescendantOf && 
+                         intersectedObj.isDescendantOf(interactable.mesh)) ||
+                        this.isDescendantOf(intersectedObj, interactable.mesh)) {
+                        
+                        return this.interact(interactable);
+                    }
+                }
             }
         }
         
+        return false;
+    }
+    
+    // Méthode utilitaire pour vérifier si un objet est descendant d'un autre
+    isDescendantOf(child, parent) {
+        let current = child;
+        while (current) {
+            if (current === parent) {
+                return true;
+            }
+            current = current.parent;
+        }
         return false;
     }
     
