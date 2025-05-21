@@ -3,14 +3,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import Character from '../entities/Character.js';
 import InteractiveObject from '../entities/InteractiveObject.js';
 import PortfolioManager from './PortfolioManager.js';
+import CameraController from './CameraController.js';
+import InputManager from './InputManager.js';
+import UIManager from './UIManager.js';
 
 class Game {
     constructor() {
         // DOM Elements
         this.canvas = document.getElementById('game-canvas');
-        this.loadingScreen = document.getElementById('loading-screen');
-        this.controlsHelp = document.getElementById('controls-help');
-        this.debugPanel = document.getElementById('debug-panel');
         
         // Three.js setup
         this.scene = new THREE.Scene();
@@ -30,64 +30,60 @@ class Game {
         // Horloge
         this.clock = new THREE.Clock();
         
-        // Gestionnaire de portfolio
-        this.portfolioManager = new PortfolioManager();
+        // Gestionnaires
+        this.uiManager = new UIManager();
+        this.inputManager = new InputManager(this, this.canvas);
+        this.portfolioManager = new PortfolioManager(this.uiManager);
+        
+        // Initialiser le contrôleur de caméra
+        this.cameraController = new CameraController(this.camera, this.canvas);
         
         // Collections 
         this.interactiveObjects = [];
         
-        // Contrôles de la caméra avec la souris
-        this.mouseControls = {
-            enabled: true,
-            sensitivity: 0.002,
-            maxPolarAngle: Math.PI * 0.45,     // 80 degrés vers le bas
-            minPolarAngle: Math.PI * 0.05,     // 5 degrés vers le haut
-            polarAngle: Math.PI * 0.25,        // Angle vertical initial (25 degrés)
-            azimuthAngle: -Math.PI / 4,        // Angle horizontal initial (-45 degrés)
-            mouseDown: false,
-            lastMouseX: 0,
-            lastMouseY: 0,
-            lockCamera: false                  // Si true, désactive temporairement les contrôles de souris
-        };
-        
-        // Paramètres de la caméra
-        this.cameraSettings = {
-            followPlayer: true,          // Si la caméra doit suivre le joueur
-            rotateWithPlayer: false,     // Si la caméra doit tourner avec le joueur
-            smoothFollow: true,          // Transition douce
-            followSpeed: 0.1,            // Vitesse de suivi (plus petit = plus lent)
-            height: 4,                   // Hauteur de la caméra
-            distance: 8,                 // Distance derrière le joueur
-            lookHeight: 1.7,             // Hauteur du point de regard
-            fixedRotation: false,        // Désactivé car nous utilisons les contrôles de souris
-            fixedAngle: -Math.PI / 4     // Angle fixe (par défaut: regarder vers la direction -z)
-        };
-        
         // Configuration initiale
-        this.setupCamera();
-        this.setupLights();
-        this.setupEnvironment();
+        this.setupScene();
         this.setupCharacter();
-        
-        // Configuration des événements
-        this.setupEventListeners();
         
         // Démarrer la boucle de rendu
         this.animate();
         
         // Afficher les contrôles d'aide
-        this.showControlsHelp();
+        this.uiManager.showControlsHelp();
     }
     
-    setupCamera() {
+    setupScene() {
+        // Initialiser la caméra
         this.camera.position.set(0, 5, 10);
         this.camera.lookAt(0, 0, 0);
         
-        // Créer des contrôles d'orbite pour le développement
-        this.orbitControls = new OrbitControls(this.camera, this.canvas);
-        this.orbitControls.enableDamping = true;
-        this.orbitControls.dampingFactor = 0.05;
-        this.orbitControls.enabled = false; // Désactivé par défaut, activé uniquement en mode debug
+        // Couleur de fond
+        this.scene.background = new THREE.Color(0x87CEEB);
+        
+        // Brouillard pour l'ambiance
+        this.scene.fog = new THREE.FogExp2(0x87CEEB, 0.02);
+        
+        // Ajouter les lumières
+        this.setupLights();
+        
+        // Ajouter le sol
+        const floorGeometry = new THREE.PlaneGeometry(100, 100);
+        const floorMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x7cbb7a,
+            roughness: 0.8,
+            metalness: 0.1
+        });
+        
+        this.floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        this.floor.rotation.x = -Math.PI / 2;
+        this.floor.receiveShadow = true;
+        this.scene.add(this.floor);
+        
+        // Ajouter les éléments décoratifs
+        this.addEnvironmentElements();
+        
+        // Ajouter les objets interactifs pour le portfolio
+        this.addPortfolioElements();
     }
     
     setupLights() {
@@ -116,33 +112,6 @@ class Game {
         this.fillLight = new THREE.DirectionalLight(0x8ec7ff, 0.5);
         this.fillLight.position.set(-5, 3, -5);
         this.scene.add(this.fillLight);
-    }
-    
-    setupEnvironment() {
-        // Couleur de fond
-        this.scene.background = new THREE.Color(0x87CEEB);
-        
-        // Brouillard pour l'ambiance
-        this.scene.fog = new THREE.FogExp2(0x87CEEB, 0.02);
-        
-        // Sol
-        const floorGeometry = new THREE.PlaneGeometry(100, 100);
-        const floorMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x7cbb7a,
-            roughness: 0.8,
-            metalness: 0.1
-        });
-        
-        this.floor = new THREE.Mesh(floorGeometry, floorMaterial);
-        this.floor.rotation.x = -Math.PI / 2;
-        this.floor.receiveShadow = true;
-        this.scene.add(this.floor);
-        
-        // Ajouter quelques éléments décoratifs
-        this.addEnvironmentElements();
-        
-        // Ajouter des objets interactifs pour le portfolio
-        this.addPortfolioElements();
     }
     
     addEnvironmentElements() {
@@ -367,207 +336,9 @@ class Game {
             eyeColor: 0x1E90FF,
             outfitColor: 0x9370DB
         });
-    }
-    
-    toggleDebugDisplay() {
-        // Toggle des contrôles d'orbite
-        if (this.orbitControls) {
-            this.orbitControls.enabled = !this.orbitControls.enabled;
-            
-            // Si les contrôles d'orbite sont activés, désactiver le suivi du joueur
-            if (this.orbitControls.enabled) {
-                this.cameraSettings.followPlayer = false;
-                this.mouseControls.enabled = false;
-            } else {
-                this.cameraSettings.followPlayer = true;
-                this.mouseControls.enabled = true;
-            }
-        }
-    }
-    
-    setupEventListeners() {
-        // Redimensionnement de la fenêtre
-        window.addEventListener('resize', () => {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-        });
         
-        // Contrôles clavier
-        window.addEventListener('keydown', (e) => {
-            if (this.character) {
-                this.character.handleKeyDown(e);
-            }
-            
-            // Ouvrir/fermer le mode debug avec la touche Tab
-            if (e.code === 'Tab') {
-                e.preventDefault();
-                this.toggleDebugDisplay();
-            }
-            
-            // Afficher les contrôles avec la touche H
-            if (e.code === 'KeyH') {
-                this.toggleControlsHelp();
-            }
-        });
-        
-        window.addEventListener('keyup', (e) => {
-            if (this.character) {
-                this.character.handleKeyUp(e);
-            }
-        });
-        
-        // Contrôles de souris pour la caméra
-        this.canvas.addEventListener('mousedown', (e) => {
-            if (this.mouseControls.enabled && e.button === 0) { // Bouton gauche de la souris
-                this.mouseControls.mouseDown = true;
-                this.mouseControls.lastMouseX = e.clientX;
-                this.mouseControls.lastMouseY = e.clientY;
-                
-                // Capture du curseur pour éviter qu'il ne sorte de la fenêtre
-                if (this.canvas.requestPointerLock) {
-                    this.canvas.requestPointerLock();
-                }
-            }
-        });
-        
-        document.addEventListener('mouseup', () => {
-            this.mouseControls.mouseDown = false;
-            
-            // Libération du curseur
-            if (document.exitPointerLock) {
-                document.exitPointerLock();
-            }
-        });
-        
-        // Utiliser mousemove pour le mouvement de caméra
-        document.addEventListener('mousemove', (e) => {
-            if (this.mouseControls.enabled) {
-                // Si le verrou de pointeur est actif, utiliser movementX/Y
-                if (document.pointerLockElement === this.canvas) {
-                    this.handleMouseMovement(e.movementX, e.movementY);
-                } 
-                // Sinon, calculer le mouvement à partir des coordonnées absolues
-                else if (this.mouseControls.mouseDown) {
-                    const deltaX = e.clientX - this.mouseControls.lastMouseX;
-                    const deltaY = e.clientY - this.mouseControls.lastMouseY;
-                    
-                    this.handleMouseMovement(deltaX, deltaY);
-                    
-                    this.mouseControls.lastMouseX = e.clientX;
-                    this.mouseControls.lastMouseY = e.clientY;
-                }
-            }
-        });
-        
-        // Empêcher le menu contextuel sur clic droit
-        this.canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-        });
-        
-        // Cacher l'écran de chargement après un court délai
-        setTimeout(() => {
-            this.loadingScreen.classList.add('hidden');
-        }, 1500);
-    }
-    
-    handleMouseMovement(deltaX, deltaY) {
-        if (!this.mouseControls.enabled || this.mouseControls.lockCamera) {
-            return;
-        }
-        
-        // Ajuster les angles en fonction du mouvement de la souris
-        const sensitivity = this.mouseControls.sensitivity;
-        
-        // Rotation horizontale (azimuth)
-        this.mouseControls.azimuthAngle -= deltaX * sensitivity;
-        
-        // Rotation verticale (polar) avec limites pour éviter de regarder trop haut ou trop bas
-        this.mouseControls.polarAngle += deltaY * sensitivity;
-        this.mouseControls.polarAngle = Math.max(
-            this.mouseControls.minPolarAngle,
-            Math.min(this.mouseControls.maxPolarAngle, this.mouseControls.polarAngle)
-        );
-        
-        // Mettre à jour la direction du personnage pour qu'il se déplace dans la direction de la caméra
-        if (this.character && this.character.updateCameraDirection) {
-            const cameraDirection = new THREE.Vector3();
-            cameraDirection.setFromSphericalCoords(
-                1,
-                this.mouseControls.polarAngle,
-                this.mouseControls.azimuthAngle
-            );
-            cameraDirection.y = 0; // Ignorer l'axe Y pour le mouvement du personnage
-            cameraDirection.normalize();
-            
-            this.character.updateCameraDirection(cameraDirection);
-        }
-    }
-    
-    showControlsHelp() {
-        this.controlsHelp.classList.remove('hidden');
-        
-        // Mettre à jour le texte d'aide pour inclure les contrôles de souris
-        this.controlsHelp.innerHTML = `
-            <p>ZQSD / Flèches : Se déplacer</p>
-            <p>Souris : Regarder autour</p>
-            <p>E / Clic : Interagir</p>
-            <p>Espace : Sauter</p>
-            <p>Echap : Menu</p>
-            <p>Tab : Mode debug</p>
-        `;
-        
-        // Cacher après 5 secondes
-        setTimeout(() => {
-            this.controlsHelp.classList.add('hidden');
-        }, 5000);
-    }
-    
-    toggleControlsHelp() {
-        this.controlsHelp.classList.toggle('hidden');
-    }
-    
-    updateCamera() {
-        if (!this.character) return;
-        
-        if (this.orbitControls && this.orbitControls.enabled) {
-            // Mode contrôles d'orbite - ne rien faire, les contrôles gèrent la caméra
-            return;
-        }
-        
-        if (this.cameraSettings.followPlayer) {
-            // Position de base du joueur
-            const playerPosition = this.character.mesh.position.clone();
-            
-            // Calculer la position de la caméra basée sur les angles de la souris
-            const cameraPosition = new THREE.Vector3();
-            
-            // Calculer les coordonnées sphériques (r, theta, phi) pour la position de la caméra
-            cameraPosition.setFromSphericalCoords(
-                this.cameraSettings.distance,
-                this.mouseControls.polarAngle,
-                this.mouseControls.azimuthAngle
-            );
-            
-            // Ajouter la position du joueur
-            cameraPosition.add(playerPosition);
-            cameraPosition.y += this.cameraSettings.height;
-            
-            // Point de regard situé à hauteur des yeux du personnage
-            const lookAtPosition = playerPosition.clone().add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
-            
-            // Appliquer la position de la caméra avec ou sans lissage
-            if (this.cameraSettings.smoothFollow) {
-                // Animation douce de la caméra
-                this.camera.position.lerp(cameraPosition, this.cameraSettings.followSpeed);
-            } else {
-                // Positionnement direct
-                this.camera.position.copy(cameraPosition);
-            }
-            
-            // Faire regarder la caméra vers le personnage
-            this.camera.lookAt(lookAtPosition);
-        }
+        // Configurer le contrôleur de caméra pour suivre le personnage
+        this.cameraController.setTarget(this.character);
     }
     
     animate() {
@@ -575,10 +346,11 @@ class Game {
         
         const delta = this.clock.getDelta();
         
-        // Mettre à jour les contrôles d'orbite si activés
-        if (this.orbitControls && this.orbitControls.enabled) {
-            this.orbitControls.update();
-        }
+        // Mettre à jour les entrées
+        this.inputManager.update();
+        
+        // Mettre à jour la caméra
+        this.cameraController.update(delta);
         
         // Mettre à jour le personnage
         if (this.character) {
@@ -586,11 +358,15 @@ class Game {
             this.character.checkInteractions(this.interactiveObjects, this.camera);
         }
         
-        // Mettre à jour la caméra
-        this.updateCamera();
-        
         // Rendu de la scène
         this.renderer.render(this.scene, this.camera);
+    }
+    
+    // Méthode pour redimensionner la fenêtre
+    onWindowResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 }
 
