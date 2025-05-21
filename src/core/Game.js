@@ -36,6 +36,20 @@ class Game {
         // Collections 
         this.interactiveObjects = [];
         
+        // Contrôles de la caméra avec la souris
+        this.mouseControls = {
+            enabled: true,
+            sensitivity: 0.002,
+            maxPolarAngle: Math.PI * 0.45,     // 80 degrés vers le bas
+            minPolarAngle: Math.PI * 0.05,     // 5 degrés vers le haut
+            polarAngle: Math.PI * 0.25,        // Angle vertical initial (25 degrés)
+            azimuthAngle: -Math.PI / 4,        // Angle horizontal initial (-45 degrés)
+            mouseDown: false,
+            lastMouseX: 0,
+            lastMouseY: 0,
+            lockCamera: false                  // Si true, désactive temporairement les contrôles de souris
+        };
+        
         // Paramètres de la caméra
         this.cameraSettings = {
             followPlayer: true,          // Si la caméra doit suivre le joueur
@@ -45,7 +59,7 @@ class Game {
             height: 4,                   // Hauteur de la caméra
             distance: 8,                 // Distance derrière le joueur
             lookHeight: 1.7,             // Hauteur du point de regard
-            fixedRotation: true,         // Maintenir une rotation fixe
+            fixedRotation: false,        // Désactivé car nous utilisons les contrôles de souris
             fixedAngle: -Math.PI / 4     // Angle fixe (par défaut: regarder vers la direction -z)
         };
         
@@ -55,11 +69,11 @@ class Game {
         this.setupEnvironment();
         this.setupCharacter();
         
-        // Démarrer la boucle de rendu
-        this.animate();
-        
         // Configuration des événements
         this.setupEventListeners();
+        
+        // Démarrer la boucle de rendu
+        this.animate();
         
         // Afficher les contrôles d'aide
         this.showControlsHelp();
@@ -363,8 +377,10 @@ class Game {
             // Si les contrôles d'orbite sont activés, désactiver le suivi du joueur
             if (this.orbitControls.enabled) {
                 this.cameraSettings.followPlayer = false;
+                this.mouseControls.enabled = false;
             } else {
                 this.cameraSettings.followPlayer = true;
+                this.mouseControls.enabled = true;
             }
         }
     }
@@ -401,14 +417,105 @@ class Game {
             }
         });
         
+        // Contrôles de souris pour la caméra
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (this.mouseControls.enabled && e.button === 0) { // Bouton gauche de la souris
+                this.mouseControls.mouseDown = true;
+                this.mouseControls.lastMouseX = e.clientX;
+                this.mouseControls.lastMouseY = e.clientY;
+                
+                // Capture du curseur pour éviter qu'il ne sorte de la fenêtre
+                if (this.canvas.requestPointerLock) {
+                    this.canvas.requestPointerLock();
+                }
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            this.mouseControls.mouseDown = false;
+            
+            // Libération du curseur
+            if (document.exitPointerLock) {
+                document.exitPointerLock();
+            }
+        });
+        
+        // Utiliser mousemove pour le mouvement de caméra
+        document.addEventListener('mousemove', (e) => {
+            if (this.mouseControls.enabled) {
+                // Si le verrou de pointeur est actif, utiliser movementX/Y
+                if (document.pointerLockElement === this.canvas) {
+                    this.handleMouseMovement(e.movementX, e.movementY);
+                } 
+                // Sinon, calculer le mouvement à partir des coordonnées absolues
+                else if (this.mouseControls.mouseDown) {
+                    const deltaX = e.clientX - this.mouseControls.lastMouseX;
+                    const deltaY = e.clientY - this.mouseControls.lastMouseY;
+                    
+                    this.handleMouseMovement(deltaX, deltaY);
+                    
+                    this.mouseControls.lastMouseX = e.clientX;
+                    this.mouseControls.lastMouseY = e.clientY;
+                }
+            }
+        });
+        
+        // Empêcher le menu contextuel sur clic droit
+        this.canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        
         // Cacher l'écran de chargement après un court délai
         setTimeout(() => {
             this.loadingScreen.classList.add('hidden');
         }, 1500);
     }
     
+    handleMouseMovement(deltaX, deltaY) {
+        if (!this.mouseControls.enabled || this.mouseControls.lockCamera) {
+            return;
+        }
+        
+        // Ajuster les angles en fonction du mouvement de la souris
+        const sensitivity = this.mouseControls.sensitivity;
+        
+        // Rotation horizontale (azimuth)
+        this.mouseControls.azimuthAngle -= deltaX * sensitivity;
+        
+        // Rotation verticale (polar) avec limites pour éviter de regarder trop haut ou trop bas
+        this.mouseControls.polarAngle += deltaY * sensitivity;
+        this.mouseControls.polarAngle = Math.max(
+            this.mouseControls.minPolarAngle,
+            Math.min(this.mouseControls.maxPolarAngle, this.mouseControls.polarAngle)
+        );
+        
+        // Mettre à jour la direction du personnage pour qu'il se déplace dans la direction de la caméra
+        if (this.character && this.character.updateCameraDirection) {
+            const cameraDirection = new THREE.Vector3();
+            cameraDirection.setFromSphericalCoords(
+                1,
+                this.mouseControls.polarAngle,
+                this.mouseControls.azimuthAngle
+            );
+            cameraDirection.y = 0; // Ignorer l'axe Y pour le mouvement du personnage
+            cameraDirection.normalize();
+            
+            this.character.updateCameraDirection(cameraDirection);
+        }
+    }
+    
     showControlsHelp() {
         this.controlsHelp.classList.remove('hidden');
+        
+        // Mettre à jour le texte d'aide pour inclure les contrôles de souris
+        this.controlsHelp.innerHTML = `
+            <p>ZQSD / Flèches : Se déplacer</p>
+            <p>Souris : Regarder autour</p>
+            <p>E / Clic : Interagir</p>
+            <p>Espace : Sauter</p>
+            <p>Echap : Menu</p>
+            <p>Tab : Mode debug</p>
+        `;
         
         // Cacher après 5 secondes
         setTimeout(() => {
@@ -432,44 +539,22 @@ class Game {
             // Position de base du joueur
             const playerPosition = this.character.mesh.position.clone();
             
-            let cameraPosition = new THREE.Vector3();
-            let lookAtPosition = new THREE.Vector3();
+            // Calculer la position de la caméra basée sur les angles de la souris
+            const cameraPosition = new THREE.Vector3();
             
-            if (this.cameraSettings.fixedRotation) {
-                // Utiliser une rotation fixe pour la caméra (ne suit pas la rotation du joueur)
-                const angle = this.cameraSettings.fixedAngle; // Angle fixe (regarder vers -Z par défaut)
-                
-                // Calculer la position de la caméra à partir de l'angle fixe
-                cameraPosition.x = playerPosition.x + Math.sin(angle) * this.cameraSettings.distance;
-                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
-                cameraPosition.z = playerPosition.z + Math.cos(angle) * this.cameraSettings.distance;
-                
-                // Point de regard situé à hauteur des yeux du personnage
-                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
-            } else if (this.cameraSettings.rotateWithPlayer) {
-                // Utiliser la rotation du joueur pour orienter la caméra
-                const playerRotation = this.character.mesh.rotation.y;
-                
-                // Calculer l'offset de la caméra par rapport à la rotation du personnage
-                const offsetX = Math.sin(playerRotation) * this.cameraSettings.distance;
-                const offsetZ = Math.cos(playerRotation) * this.cameraSettings.distance;
-                
-                // Calculer la position de la caméra
-                cameraPosition.x = playerPosition.x - offsetX;
-                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
-                cameraPosition.z = playerPosition.z - offsetZ;
-                
-                // Point de regard situé à hauteur des yeux du personnage
-                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
-            } else {
-                // Mode position fixe derrière le joueur (ignorer la rotation)
-                cameraPosition.x = playerPosition.x;
-                cameraPosition.y = playerPosition.y + this.cameraSettings.height;
-                cameraPosition.z = playerPosition.z + this.cameraSettings.distance;
-                
-                // Point de regard toujours à la position du joueur
-                lookAtPosition.copy(playerPosition).add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
-            }
+            // Calculer les coordonnées sphériques (r, theta, phi) pour la position de la caméra
+            cameraPosition.setFromSphericalCoords(
+                this.cameraSettings.distance,
+                this.mouseControls.polarAngle,
+                this.mouseControls.azimuthAngle
+            );
+            
+            // Ajouter la position du joueur
+            cameraPosition.add(playerPosition);
+            cameraPosition.y += this.cameraSettings.height;
+            
+            // Point de regard situé à hauteur des yeux du personnage
+            const lookAtPosition = playerPosition.clone().add(new THREE.Vector3(0, this.cameraSettings.lookHeight, 0));
             
             // Appliquer la position de la caméra avec ou sans lissage
             if (this.cameraSettings.smoothFollow) {
