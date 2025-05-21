@@ -57,6 +57,10 @@ class Character {
         this.cameraTarget.position.set(0, 1.7, 0);
         this.mesh.add(this.cameraTarget);
         
+        // Direction de la caméra (utilisée pour les contrôles)
+        this.cameraDirection = new THREE.Vector3(0, 0, -1);
+        this.cameraRight = new THREE.Vector3(1, 0, 0);
+        
         // État de l'animation
         this.state = 'idle';
         this.animDuration = 0;
@@ -139,6 +143,17 @@ class Character {
         }
     }
     
+    // Méthode pour mettre à jour la direction de la caméra (appelée par Game.js)
+    updateCameraDirection(direction) {
+        if (direction) {
+            this.cameraDirection.copy(direction);
+            
+            // Calculer la direction perpendiculaire (droite)
+            this.cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), this.cameraDirection);
+            this.cameraRight.normalize();
+        }
+    }
+    
     // Méthode pour mettre à jour les mouvement du personnage
     update(delta, camera) {
         this.updateMovement(delta, camera);
@@ -151,15 +166,19 @@ class Character {
     }
     
     updateMovement(delta, camera) {
-        // Calculer la direction de la caméra
-        const cameraDirection = new THREE.Vector3();
-        camera.getWorldDirection(cameraDirection);
-        cameraDirection.y = 0;
-        cameraDirection.normalize();
-        
-        // Calculer la direction perpendiculaire (droite)
-        const cameraRight = new THREE.Vector3();
-        cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), cameraDirection);
+        // Si la caméra n'est pas fournie, utiliser la direction de caméra stockée
+        if (!camera) {
+            this.updateCameraDirectionFromRotation();
+        } else {
+            // Calculer la direction de la caméra si elle est fournie
+            camera.getWorldDirection(this.cameraDirection);
+            this.cameraDirection.y = 0;
+            this.cameraDirection.normalize();
+            
+            // Calculer la direction perpendiculaire (droite)
+            this.cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), this.cameraDirection);
+            this.cameraRight.normalize();
+        }
         
         // Vitesse de base
         const speedMultiplier = delta * this.options.speed;
@@ -168,24 +187,21 @@ class Character {
         this.physics.velocity.x = 0;
         this.physics.velocity.z = 0;
         
-        // Application des mouvements
+        // Application des mouvements relatifs à la direction de la caméra
         if (this.moveState.forward) {
-            this.physics.velocity.add(cameraDirection.clone().multiplyScalar(speedMultiplier));
+            this.physics.velocity.add(this.cameraDirection.clone().multiplyScalar(speedMultiplier));
         }
         
         if (this.moveState.backward) {
-            this.physics.velocity.add(cameraDirection.clone().multiplyScalar(-speedMultiplier));
+            this.physics.velocity.add(this.cameraDirection.clone().multiplyScalar(-speedMultiplier));
         }
         
-        // Inverser les directions gauche/droite pour corriger le comportement
         if (this.moveState.left) {
-            // Correction: utilisez une valeur positive pour le mouvement vers la gauche
-            this.physics.velocity.add(cameraRight.clone().multiplyScalar(-speedMultiplier));
+            this.physics.velocity.add(this.cameraRight.clone().multiplyScalar(-speedMultiplier));
         }
         
         if (this.moveState.right) {
-            // Correction: utilisez une valeur négative pour le mouvement vers la droite
-            this.physics.velocity.add(cameraRight.clone().multiplyScalar(speedMultiplier));
+            this.physics.velocity.add(this.cameraRight.clone().multiplyScalar(speedMultiplier));
         }
         
         // Appliquer le saut
@@ -226,6 +242,19 @@ class Character {
             // Appliquer la rotation lissée
             this.mesh.rotation.y += adjustedRotation * Math.min(delta * this.options.turnSpeed, 1);
         }
+    }
+    
+    updateCameraDirectionFromRotation() {
+        // Si pas de données de caméra, utiliser la rotation du personnage
+        const playerRotation = this.mesh.rotation.y;
+        
+        // Calculer la direction avant du personnage
+        this.cameraDirection.x = Math.sin(playerRotation);
+        this.cameraDirection.y = 0;
+        this.cameraDirection.z = Math.cos(playerRotation);
+        
+        // Calculer la direction droite
+        this.cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), this.cameraDirection);
     }
     
     updatePhysics(delta) {
